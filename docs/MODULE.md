@@ -1,10 +1,9 @@
-# The PredatorSense module (task B6)
+# The PredatorSense module
 
-`modules/predatorsense/` is a Rigbay module for Acer Predator laptops. It shows the firmware's temperatures and fan speeds and
+This repository is a Rigbay module for Acer Predator laptops. It shows the firmware's temperatures and fan speeds and
 sets the fan mode to **Auto** or **Maximum**. Nothing else. It is built only from what `FINDINGS.md` sections 11 to 14 verified.
-It keeps to its own folder (own solution `Rigbay.PredatorSense.sln`, own `Directory.Build.props`, `Rigbay.Abstractions` as the only
-reference) so the owner can move it to a `module-predatorsense` repository; there, the project reference becomes the
-`Rigbay.Abstractions` package (the comment in the csproj says how).
+It was written inside the Rigbay repository (`modules/predatorsense/` there) and moved here with its history; the host contract
+(`Rigbay.Abstractions`) is the git submodule `external/rigbay`.
 
 ## What it does
 
@@ -60,10 +59,10 @@ record of every call, so "exactly one call with the exact value" is checked as a
 - The module folder (output of the build, no `Rigbay.Abstractions.dll` in it, `System.Management.dll` and `System.CodeDom.dll` next to the
   entry assembly) was loaded by the real app from a scratch modules folder (`tools/run-elevated.ps1`). Log: probe supported, "Readings are now
   Available", `enabled`, `stopped`. System.Management loaded through the A6 loader rule.
-- PNGs of the app window (PrintWindow of its own HWND, each one looked at) in `modules/predatorsense/docs/evidence/`: `module-tall-dark`,
+- PNGs of the app window (PrintWindow of its own HWND, each one looked at) in `docs/evidence/`: `module-tall-dark`,
   `module-tall-light`, `module-vi-dark`, `dashboard-dark`, `dashboard-light`, `approval-dark`.
 - Live readings by the verb `rigbay predatorsense status` (headless, exit 0) next to `nvidia-smi` taken just before and after
-  (`modules/predatorsense/docs/evidence/status-*.txt`):
+  (`docs/evidence/status-*.txt`):
 
 | Run | GPU temp, module | `nvidia-smi` before / after | CPU temp | System temp | CPU fan | GPU fans |
 | --- | --- | --- | --- | --- | --- | --- |
