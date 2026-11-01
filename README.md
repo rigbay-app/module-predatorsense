@@ -3,7 +3,7 @@
 Temperatures and fan speeds of an Acer Predator laptop, and the fan mode: **Auto** or **Maximum**. Nothing else.
 
 This is a module for [Rigbay](https://github.com/rigbay-app/rigbay), a Windows app that manages modules for your own machine.
-Version 0.1.0, early development: there is no release and no package.
+Version 0.1.1, early development. A ZIP that Rigbay can install is attached to each [release](https://github.com/rigbay-app/module-predatorsense/releases) (marked pre-release: nothing here has been verified on more than one machine).
 
 ![The module page in Rigbay (dark theme)](docs/evidence/module-tall-dark.png)
 
@@ -41,7 +41,7 @@ dotnet build Rigbay.PredatorSense.sln --configuration Release
 dotnet test  Rigbay.PredatorSense.sln --configuration Release
 ```
 
-The 102 unit tests run against a fake firmware; no hardware is touched. If you cloned without `--recurse-submodules`, run
+The 121 unit tests run against a fake firmware; no hardware is touched. If you cloned without `--recurse-submodules`, run
 `git submodule update --init`.
 
 The module folder is the build output: `src\Rigbay.PredatorSense\bin\Release\net8.0\`. It holds `module.json`, `lang\`,
@@ -79,7 +79,7 @@ A wrong fan write can overheat a laptop, so the limits are in code, not only in 
   speed response, see `docs/FINDINGS.md` sections 13 and 14), but **this module's own write code has never run on real hardware**; it is
   tested against the fake only. Also not verified: restore-on-exit and the hotkey on the real machine, behaviour across sleep or reboot,
   other models, high DPI, screen readers. `docs/MODULE.md` lists them with the live test that would close the gaps.
-- **Things to know.** The firmware cannot report the current fan mode, so the page shows "Last set by Rigbay", and PredatorSense may change
+- **Things to know.** The firmware cannot report the current fan mode, so the Fan mode box says "Not set" until Rigbay has set a mode in this run, then the page shows "Last set by Rigbay", and PredatorSense may change
   the mode without telling Rigbay. If Rigbay crashes while Maximum is set, the fans stay on Maximum until you press Auto in PredatorSense or restart.
   Stop at once, and use PredatorSense's own Auto button, if fan speeds do not rise after Maximum or a temperature gets close to 90 °C.
 - No Acer or Intel files, and no code taken from them, are in this repository. The interface was read from software installed on the
@@ -98,6 +98,28 @@ A wrong fan write can overheat a laptop, so the limits are in code, not only in 
 The documents were written while the module was developed inside the Rigbay repository. Names like B1 to B6 are its work steps, "owner"
 is the repository owner who approved each hardware call, and paths such as `tools/predatorsense-probe` and `tools/predatorsense-write` are
 in the [Rigbay repository](https://github.com/rigbay-app/rigbay/tree/main/tools).
+
+
+## Changelog
+
+### 0.1.1
+
+- **Fan mode no longer pretends to know the mode** (Rigbay end-to-end finding E2E-10). The laptop cannot report its fan mode, but the box
+  opened on "Auto". It now opens on **Not set** (English and Vietnamese). "Not set" is a state, not a value: choosing it writes nothing.
+  Once Rigbay has set a mode in this run the option is no longer offered; the box shows what Rigbay set, and "Last set by Rigbay" keeps the
+  time. A new run of Rigbay starts on "Not set" again.
+- Choosing **Auto** while nothing is set is now a real request (the host asks, then Auto is sent). Before, it did nothing, because the box already said Auto.
+- A Revert of the very first change has no earlier known mode: nothing is written and the speed-check line says so. A Revert of a later change
+  still goes back to the previous mode and is asked about like any change.
+- Every write still needs the host's yes and still passes the same fixed allow-list (Auto and Maximum only); nothing new can reach the firmware.
+- 18 new unit tests (not set, set Auto, set Maximum, revert with nothing to go back to, restart of the module, language switch, refused and
+  stalled first write, hotkey); 121 in all. Screenshots in `docs/evidence/` (`fan-*`).
+- Verification and its limits: see `docs/MODULE.md`. In particular, this module's own write code has still not run on real hardware (the call format was run by the
+  owner's approved tests B4 and B5 with the old write tools), and the "set" screenshots were drawn over a fake firmware.
+
+### 0.1.0
+
+First release: six sensors, fan mode Auto or Maximum behind an allow-list, hotkey, `rigbay predatorsense` verbs, English and Vietnamese.
 
 ## Contributing
 
