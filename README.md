@@ -1,9 +1,9 @@
 # PredatorSense module for Rigbay
 
-Temperatures and fan speeds of an Acer Predator laptop, and the fan mode: **Auto** or **Maximum**. Nothing else.
+Temperatures and fan speeds of an Acer Predator laptop, and the fan mode: **Auto** or **Maximum**. It also shows the performance mode, read only. Nothing else.
 
 This is a module for [Rigbay](https://github.com/rigbay-app/rigbay), a Windows app that manages modules for your own machine.
-Version 0.1.1, early development. A ZIP that Rigbay can install is attached to each [release](https://github.com/rigbay-app/module-predatorsense/releases) (marked pre-release: nothing here has been verified on more than one machine).
+Version 0.1.2 (pre-release), early development. **Needs Rigbay 0.1.2 or newer** (host API 0.1.3): Rigbay 0.1.0 and 0.1.1 do not check that and would offer it, so update Rigbay first. A ZIP that Rigbay can install is attached to each [release](https://github.com/rigbay-app/module-predatorsense/releases) (marked pre-release: nothing here has been verified on more than one machine).
 
 ![The module page in Rigbay (dark theme)](docs/evidence/module-tall-dark.png)
 
@@ -16,7 +16,8 @@ Version 0.1.1, early development. A ZIP that Rigbay can install is attached to e
   shows exactly what will change. After the change the module reads the fan speeds for 10 seconds and says whether they moved.
 - The sensors are read every 2 s (setting `pollSeconds`) while the module page is open or something displays the readings, and every 10 s otherwise.
 - If Rigbay set Maximum and the module is turned off or Rigbay closes, it sends Auto again (setting `restoreAutoOnExit`, on by default).
-- `rigbay predatorsense status` prints the model and the six readings.
+- Shows the laptop's current performance mode (Quiet, Default, Extreme, Turbo) and the modes it offers, **read only**: two reads of the firmware, no selector. Change the mode in PredatorSense; Rigbay will offer it only after a supervised test.
+- `rigbay predatorsense status` prints the model, the six readings and the performance mode.
 
 ![The dashboard bay](docs/evidence/dashboard-dark.png)
 
@@ -54,7 +55,7 @@ Rigbay loads modules from `%ProgramData%\Rigbay\modules\<id>\`, where the folder
 
 1. Copy the whole build output folder to `%ProgramData%\Rigbay\modules\predatorsense\`, so that
    `%ProgramData%\Rigbay\modules\predatorsense\module.json` exists.
-2. Start Rigbay as administrator. It reads the manifest first (`hostApi` `>=0.1 <0.2`, so it needs a Rigbay 0.1 host).
+2. Start Rigbay as administrator. It reads the manifest first (`hostApi` `>=0.1.3 <0.2`, so it needs Rigbay 0.1.2 or newer).
 3. Open the module page. The first time, Rigbay lists what the module says it uses (below) and asks you to accept it. Then turn the module on.
 
 If the module does not show up or fails, the host log (`%LOCALAPPDATA%\Rigbay\logs\rigbay.log`) says why. `%ProgramData%\Rigbay\modules`
@@ -68,16 +69,16 @@ The `PSSvc` service is looked up, never started, stopped or called.
 
 A wrong fan write can overheat a laptop, so the limits are in code, not only in this text.
 
-- **What reaches the firmware.** Only two things: `GetGamingSysInfo` for the six sensor indexes, and `SetGamingFanBehavior` with one of two
+- **What reaches the firmware.** Only three things: `GetGamingSysInfo` for the six sensor indexes, `GetGamingMiscSetting` with index 0x0A or 0x0B (the two read-only performance-mode reads, 0.1.2), and `SetGamingFanBehavior` with one of two
   values, all fans Auto (`0x01410019`) or all fans Maximum (`0x02820019`). The fixed table is `src/Rigbay.PredatorSense/Wmi/WmiAllowList.cs`,
   checked in three places, and the tests refuse every other value, including every one-bit change of the two.
-- **What is not in the module.** Custom fan speeds or curves, Cool Booster, performance (operation) modes, lighting, battery limits, BIOS
+- **What is not in the module.** Custom fan speeds or curves, Cool Booster, changing the performance (operation) mode (it is only read), lighting, battery limits, BIOS
   settings. They cannot be added without a new verified encoding, an owner decision and a new table entry.
 - **Writes need a yes.** The host asks before every fan change, also for the hotkey and the command line. A headless run without a window to ask
   in is refused.
 - **Not verified.** The firmware calls themselves were verified on the one machine above with a separate write tool (status 0 and a fan
   speed response, see `docs/FINDINGS.md` sections 13 and 14), but **this module's own write code has never run on real hardware**; it is
-  tested against the fake only. Also not verified: restore-on-exit and the hotkey on the real machine, behaviour across sleep or reboot,
+  tested against the fake only. The two performance-mode reads were run once each on that machine with a separate read tool (current mode Default; offered Quiet, Default, Extreme, Turbo; no write), but this module's own code for them has not run on real hardware either, and **no performance-mode write has ever been run**. Also not verified: restore-on-exit and the hotkey on the real machine, behaviour across sleep or reboot,
   other models, high DPI, screen readers. `docs/MODULE.md` lists them with the live test that would close the gaps.
 - **Things to know.** The firmware cannot report the current fan mode, so the Fan mode box says "Not set" until Rigbay has set a mode in this run, then the page shows "Last set by Rigbay", and PredatorSense may change
   the mode without telling Rigbay. If Rigbay crashes while Maximum is set, the fans stay on Maximum until you press Auto in PredatorSense or restart.
@@ -101,6 +102,12 @@ in the [Rigbay repository](https://github.com/rigbay-app/rigbay/tree/main/tools)
 
 
 ## Changelog
+
+The full list is in [CHANGELOG.md](CHANGELOG.md).
+
+### 0.1.2
+
+The page of the November 2026 UI review (the fan mode is the main control, one tile per temperature with its fans) and the performance mode shown read only. Needs Rigbay 0.1.2 or newer.
 
 ### 0.1.1
 

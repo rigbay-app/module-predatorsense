@@ -19,9 +19,13 @@ public sealed partial class PredatorSenseModule : IModule
     private readonly Func<TimeSpan, CancellationToken, Task>? _delay;
 
     // Values the page shows. They live as long as the instance, so enabling again after disabling works.
-    private readonly ObservableValue<string> _choice = new(ChoiceNotSet);
+    private readonly ObservableValue<string> _choice = new("");   // set to Auto, Maximum or NotSet by SyncChoice in Initialize
     private readonly ObservableValue<bool> _choiceEnabled = new(true);
     private readonly ObservableValue<string> _modelText = new("");
+    private readonly ObservableValue<string> _opModeText = new("");
+    private readonly ObservableValue<string> _opModesText = new("");
+    private readonly ObservableValue<LocalisedText> _opModeLine = new(default);
+    private readonly ObservableValue<LocalisedText> _fanLine = new(default);
     private readonly ObservableValue<string> _lastSetText = new("");
     private readonly ObservableValue<string> _checkText = new("");
     private readonly ObservableValue<double> _pollSeconds = new(2);
@@ -34,6 +38,8 @@ public sealed partial class PredatorSenseModule : IModule
     private SensorPoller? _poller;
     private FanController? _fan;
     private PollScheduler? _scheduler;
+    private OperationModeReader? _opMode;
+    private PollScheduler? _opModeScheduler;
     private IHotkeyBinding? _hotkey;
     private PredatorSenseSettings _settings = new();
     private string? _modelName;
@@ -41,7 +47,6 @@ public sealed partial class PredatorSenseModule : IModule
     private FanResult? _result;
     private bool _watching;
     private bool _noPrevious;
-    private volatile bool _pageOffersNotSet;
 
     /// <summary>Creates the module for the real machine. Does nothing but set fields.</summary>
     public PredatorSenseModule() : this(new MachineInfo(), () => new AcerWmi(), null, null) { }
@@ -83,18 +88,27 @@ public sealed partial class PredatorSenseModule : IModule
             ex => host.Log.Error("Polling the sensors failed", ex));
         _scheduler.Watched = IsWatched(host);
 
+        // The performance mode: read only. Its own reader and its own slow timer, which runs only while somebody looks at it.
+        _opMode = new OperationModeReader(_wmi, host.Metrics, host.Log);
+        _opModeScheduler = new PollScheduler(_opMode.PollOnce, TimeSpan.FromSeconds(PredatorSenseSettings.OpModePollSeconds), Timeout.InfiniteTimeSpan,
+            ex => host.Log.Error("Reading the performance mode failed", ex));
+        bool opWatched = IsOpModeWatched(host);
+        _opModeScheduler.Watched = opWatched;
+
         // Say once what each metric is called, so the dashboard shows "CPU temperature" and not "cpu.temp".
         foreach (var info in SensorInfo.All)
             host.Metrics.Describe(new MetricDescriptor(info.Metric, SensorLabelKey(info.Sensor), info.Unit, "0"));
+        host.Metrics.Describe(new MetricDescriptor(OperationModeReader.Metric, "sensor.opmode", MetricUnit.None, "0") { DescriptionKey = "sensor.opmode.description" });
 
         _poller.StateChanged += OnReadingsState;
         _poller.Polled += OnPolled;
+        _opMode.Changed += RefreshTexts;
         _fan.Changed += OnFanChanged;
         _fan.Checking += OnChecking;
         _pollSeconds.Changed += OnPollSecondsChanged;
         _restore.Changed += OnRestoreChanged;
         _choice.Changed += OnChoiceChanged;
-        host.Localisation.LanguageChanged += RefreshTexts;
+        host.Localisation.LanguageChanged += OnLanguageChanged;
         host.PageVisible.Changed += OnWatchSignal;
         host.Metrics.SubscribersChanged += OnWatchSignal;
 
@@ -104,9 +118,13 @@ public sealed partial class PredatorSenseModule : IModule
 
         // One poll now (about 70 ms, or one short timeout), so the page knows which fans this machine has.
         _poller.PollOnce();
+        // Which modes exist: once now. The current mode only when somebody looks (otherwise the first look reads it at once).
+        _opMode.ReadSupported();
+        if (opWatched) _opMode.ReadCurrent();
         SyncChoice();
         RefreshTexts();
         _scheduler.Start(TimeSpan.FromSeconds(_settings.PollSeconds));
+        _opModeScheduler.Start(opWatched ? _opModeScheduler.FastInterval : Timeout.InfiniteTimeSpan);
     }
 
     /// <inheritdoc />
@@ -116,13 +134,16 @@ public sealed partial class PredatorSenseModule : IModule
         var scheduler = _scheduler;
         var poller = _poller;
         var fan = _fan;
+        var opMode = _opMode;
         scheduler?.Stop();
+        _opModeScheduler?.Stop();
 
         if (poller is not null)
         {
             poller.StateChanged -= OnReadingsState;
             poller.Polled -= OnPolled;
         }
+        if (opMode is not null) opMode.Changed -= RefreshTexts;
         if (fan is not null)
         {
             fan.Changed -= OnFanChanged;
@@ -133,7 +154,7 @@ public sealed partial class PredatorSenseModule : IModule
         _choice.Changed -= OnChoiceChanged;
         if (host is not null)
         {
-            host.Localisation.LanguageChanged -= RefreshTexts;
+            host.Localisation.LanguageChanged -= OnLanguageChanged;
             host.PageVisible.Changed -= OnWatchSignal;
             host.Metrics.SubscribersChanged -= OnWatchSignal;
         }
@@ -152,6 +173,8 @@ public sealed partial class PredatorSenseModule : IModule
         _poller = null;
         _fan = null;
         _scheduler = null;
+        _opModeScheduler = null;
+        _opMode = null;
         _hotkey = null;
     }
 
@@ -176,18 +199,60 @@ public sealed partial class PredatorSenseModule : IModule
     private void OnWatchSignal()
     {
         var host = _host;
-        var scheduler = _scheduler;
-        if (host is null || scheduler is null) return;
-        bool watched = IsWatched(host);
-        if (watched == scheduler.Watched) return;
-        scheduler.Watched = watched;
-        if (watched) scheduler.PollSoon();
+        if (host is null) return;
+        if (_scheduler is { } scheduler)
+        {
+            bool watched = IsWatched(host);
+            if (watched != scheduler.Watched)
+            {
+                scheduler.Watched = watched;
+                if (watched) scheduler.PollSoon();
+            }
+        }
+        if (_opModeScheduler is { } opScheduler)
+        {
+            bool watched = IsOpModeWatched(host);
+            if (watched != opScheduler.Watched)
+            {
+                opScheduler.Watched = watched;
+                if (watched) opScheduler.PollSoon();   // somebody looks now: read the mode at once, then every 10 s
+            }
+        }
     }
+
+    /// <summary>
+    /// True when somebody can see the performance mode: the module's page is on screen, or the metric <see cref="OperationModeReader.Metric"/>
+    /// has a subscriber. When it is false the mode is not read at all.
+    /// </summary>
+    internal static bool IsOpModeWatched(IHostServices host) =>
+        host.PageVisible.Value || host.Metrics.SubscriberCount(OperationModeReader.Metric) > 0;
 
     /// <summary>The interval the sensors are read at now (tests).</summary>
     internal TimeSpan? CurrentPollInterval => _scheduler?.CurrentInterval;
 
+    /// <summary>True while the performance mode is being polled (page visible or the metric has a subscriber) (tests).</summary>
+    internal bool? OpModePolling => _opModeScheduler?.Watched;
+
+    /// <summary>What Rigbay set last, as the fan line starts with it ("Maximum at 14:02") (tests).</summary>
+    internal string LastSetShown => _lastSetText.Value;
+
+    /// <summary>How the fans answered the last change, the second part of the fan line; empty before one (tests).</summary>
+    internal string CheckShown => _checkText.Value;
+
+    /// <summary>The current performance mode in words ("Default", "Unknown") (tests).</summary>
+    internal string OpModeShown => _opModeText.Value;
+
+    /// <summary>The modes the laptop offers, as the row's line lists them ("Quiet, Default, Extreme, Turbo", or "Unknown") (tests).</summary>
+    internal string OpModesShown => _opModesText.Value;
+
     private void OnReadingsState(ReadingsState state) => RefreshTexts();
+
+    /// <summary>The words of the "not set" value follow the language, like every other text.</summary>
+    private void OnLanguageChanged()
+    {
+        SyncChoice();
+        RefreshTexts();
+    }
 
     private void OnPolled(SensorSnapshot snapshot) => RefreshTexts();
 
@@ -225,7 +290,7 @@ public sealed partial class PredatorSenseModule : IModule
     }
 
     /// <summary>
-    /// The user picked another mode in the drop-down. The host has already shown the effect and asked (that is what the row's
+    /// The user picked another mode in the fan-mode choice. The host has already shown the effect and asked (that is what the row's
     /// hardware flag does), so this writes. It never blocks the caller: the write runs on a pool thread.
     /// </summary>
     private void OnChoiceChanged()
@@ -234,7 +299,7 @@ public sealed partial class PredatorSenseModule : IModule
         if (fan is null) return;
         var value = _choice.Value;
 
-        if (value == ChoiceNotSet)
+        if (IsNotSet(value))
         {
             // "Not set" is a state, not a value: nothing is written for it. It arrives from our own sync (nothing set yet), or from a
             // Revert of the very first change, whose "previous" value is "Not set". Rigbay then does know what it set, so the row goes
@@ -262,6 +327,9 @@ public sealed partial class PredatorSenseModule : IModule
         try
         {
             var result = await fan.ApplyAsync(wanted, _host?.StopToken ?? CancellationToken.None).ConfigureAwait(false);
+            // The user chose it on the page and the host confirmed: the host shows the result in the window while they look at it,
+            // as a toast otherwise, and always as a toast when it failed.
+            if (_host is { } host) AnnounceFan(host, wanted, result, ToastOrigin.Page);
             ShowResult(result);
         }
         catch (OperationCanceledException) { }
@@ -277,19 +345,13 @@ public sealed partial class PredatorSenseModule : IModule
     }
 
     /// <summary>
-    /// Makes the drop-down show what Rigbay last set, or "Not set" while it has set nothing in this run. Once Rigbay has set a
-    /// mode, "Not set" is no longer a true description, so the page is rebuilt without that option.
+    /// Makes the choice show what Rigbay last set, or nothing (<see cref="NotSet"/>, not an option) while it has set nothing in this run.
     /// </summary>
     private void SyncChoice()
     {
         var fan = _fan;
         if (fan is null) return;
-        _choice.Value = fan.Last is null ? ChoiceNotSet : fan.Last.Mode == FanMode.Max ? ChoiceMax : ChoiceAuto;
-        if (fan.Last is not null && _pageOffersNotSet)
-        {
-            _pageOffersNotSet = false;   // once; the rebuilt page asks the module again and finds the option gone
-            _host?.RequestPageRefresh();
-        }
+        _choice.Value = fan.Last is null ? NotSet : fan.Last.Mode == FanMode.Max ? ChoiceMax : ChoiceAuto;
     }
 
     private void ShowResult(FanResult result)
