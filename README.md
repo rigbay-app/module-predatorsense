@@ -42,7 +42,7 @@ dotnet build Rigbay.PredatorSense.sln --configuration Release
 dotnet test  Rigbay.PredatorSense.sln --configuration Release
 ```
 
-The 121 unit tests run against a fake firmware; no hardware is touched. If you cloned without `--recurse-submodules`, run
+The 189 unit tests (0.1.2) run against a fake firmware; no hardware is touched. If you cloned without `--recurse-submodules`, run
 `git submodule update --init`.
 
 The module folder is the build output: `src\Rigbay.PredatorSense\bin\Release\net8.0\`. It holds `module.json`, `lang\`,
