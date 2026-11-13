@@ -3,7 +3,7 @@
 Temperatures and fan speeds of an Acer Predator laptop, and the fan mode: **Auto** or **Maximum**. It also shows the performance mode, read only. Nothing else.
 
 This is a module for [Rigbay](https://github.com/rigbay-app/rigbay), a Windows app that manages modules for your own machine.
-Version 0.1.2 (pre-release), early development. **Needs Rigbay 0.1.2 or newer** (host API 0.1.3): Rigbay 0.1.0 and 0.1.1 do not check that and would offer it, so update Rigbay first. A ZIP that Rigbay can install is attached to each [release](https://github.com/rigbay-app/module-predatorsense/releases) (marked pre-release: nothing here has been verified on more than one machine).
+Version 0.1.3 (pre-release), early development. **Needs Rigbay 0.1.5 or newer** (host API 0.1.4): Rigbay 0.1.0 and 0.1.1 do not check that and would offer it, and 0.1.2 and 0.1.3 refuse it, so update Rigbay first. A ZIP that Rigbay can install is attached to each [release](https://github.com/rigbay-app/module-predatorsense/releases) (marked pre-release: nothing here has been verified on more than one machine).
 
 ![The module page in Rigbay (dark theme)](docs/evidence/module-tall-dark.png)
 
@@ -42,7 +42,7 @@ dotnet build Rigbay.PredatorSense.sln --configuration Release
 dotnet test  Rigbay.PredatorSense.sln --configuration Release
 ```
 
-The 189 unit tests (0.1.2) run against a fake firmware; no hardware is touched. If you cloned without `--recurse-submodules`, run
+The 215 unit tests (0.1.3) run against a fake firmware; no hardware is touched. If you cloned without `--recurse-submodules`, run
 `git submodule update --init`.
 
 The module folder is the build output: `src\Rigbay.PredatorSense\bin\Release\net8.0\`. It holds `module.json`, `lang\`,
@@ -55,7 +55,7 @@ Rigbay loads modules from `%ProgramData%\Rigbay\modules\<id>\`, where the folder
 
 1. Copy the whole build output folder to `%ProgramData%\Rigbay\modules\predatorsense\`, so that
    `%ProgramData%\Rigbay\modules\predatorsense\module.json` exists.
-2. Start Rigbay as administrator. It reads the manifest first (`hostApi` `>=0.1.3 <0.2`, so it needs Rigbay 0.1.2 or newer).
+2. Start Rigbay as administrator. It reads the manifest first (`hostApi` `>=0.1.4 <0.2`, so it needs Rigbay 0.1.5 or newer).
 3. Open the module page. The first time, Rigbay lists what the module says it uses (below) and asks you to accept it. Then turn the module on.
 
 If the module does not show up or fails, the host log (`%LOCALAPPDATA%\Rigbay\logs\rigbay.log`) says why. `%ProgramData%\Rigbay\modules`
@@ -104,6 +104,12 @@ in the [Rigbay repository](https://github.com/rigbay-app/rigbay/tree/main/tools)
 ## Changelog
 
 The full list is in [CHANGELOG.md](CHANGELOG.md).
+
+### 0.1.3
+
+Declares what its commands do for other modules and answers background readings. Needs Rigbay 0.1.5 or newer (host API 0.1.4).
+
+**For other modules (host API 0.1.4).** `rigbay predatorsense status` is declared read-only. `rigbay predatorsense fan auto|max` is declared as a hardware write (the same effect text the page asks with); its preview is the mode the argument names ("Fan mode: Maximum (all fans at full speed)"), never the state of the fans. A run that succeeded and changed the mode reports how to put it back: `max` reports `auto`, and `auto` after Rigbay had set Maximum reports `max`. `auto` when Rigbay had set nothing reports nothing (there is no read of the firmware's fan mode, so nothing is known to restore); `max` when Rigbay had set nothing reports `auto`, which is what the module itself does when it stops. The sensors are read at least as often as another module such as Watch asks for in the background (never faster than the poll rate, never slower than every 10 s), and the performance mode, which is never read while nobody looks, is also read when a background reader asks for `predatorsense.opmode` (at the asked interval, not faster than every 10 s). None of this was run against the real firmware with a plan or another module: the tests use a fake firmware.
 
 ### 0.1.2
 
